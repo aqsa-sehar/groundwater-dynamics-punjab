@@ -1,0 +1,310 @@
+// =========================================================================
+// 1. DEFINE STUDY AREA & DISTRICTS (PUNJAB, PAKISTAN)
+// =========================================================================
+
+var provinces = ee.FeatureCollection("FAO/GAUL/2015/level1");
+var districts = ee.FeatureCollection("FAO/GAUL/2015/level2");
+
+// Filter for Punjab Province
+var punjab = provinces.filter(ee.Filter.and(
+  ee.Filter.eq('ADM0_NAME', 'Pakistan'),
+  ee.Filter.eq('ADM1_NAME', 'Punjab')
+));
+
+// Filter for Punjab Districts
+var punjabDistricts = districts.filter(ee.Filter.and(
+  ee.Filter.eq('ADM0_NAME', 'Pakistan'),
+  ee.Filter.eq('ADM1_NAME', 'Punjab')
+));
+
+Map.centerObject(punjab, 7);
+Map.addLayer(punjab, {color: 'black'}, 'Punjab Boundary Outline', false);
+
+// =========================================================================
+// 2. LOAD & PREPROCESS SATELLITE GROUNDWATER DATA (GRACE / GRACE-FO V04)
+// =========================================================================
+
+var grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/MASCON_CRI")
+              .select('lwe_thickness');
+
+// Helper function to compute period mean over Punjab
+var getPeriodMean = function(startDate, endDate) {
+  return grace.filterDate(startDate, endDate)
+              .mean()
+              .rename('lwe_thickness')
+              .clip(punjab);
+};
+
+// Define 3 periods
+var period1 = getPeriodMean('2005-01-01', '2009-12-31'); // Period 1: Mid-2000s
+var period2 = getPeriodMean('2012-01-01', '2016-12-31'); // Period 2: Mid-2010s
+var period3 = getPeriodMean('2019-01-01', '2023-12-31'); // Period 3: Recent
+
+// =========================================================================
+// 3. MAP VISUALIZATION & NET CHANGE
+// =========================================================================
+
+var palette = ['#d73027', '#f46d43', '#fdae61', '#fee08b', '#e6f598', '#abdda4', '#66c2a5', '#3288bd'];
+
+var visParams = {
+  min: -25,
+  max: 10,
+  palette: palette
+};
+
+Map.addLayer(period1, visParams, 'Groundwater Anomaly (2005-2009)');
+Map.addLayer(period2, visParams, 'Groundwater Anomaly (2012-2016)');
+Map.addLayer(period3, visParams, 'Groundwater Anomaly (2019-2023)');
+
+// Net Change Computation
+var netChange = period3.subtract(period1).rename('net_change');
+var diffParams = {
+  min: -20,
+  max: 10,
+  palette: ['#a50026', '#d73027', '#f46d43', '#ffffff', '#74add1', '#4575b4', '#313695']
+};
+Map.addLayer(netChange, diffParams, 'Punjab_Groundwater_NetChange.tif', false);
+
+// =========================================================================
+// 4. MAP TITLE PANEL (DYNAMIC WITH YEARS)
+// =========================================================================
+
+var titlePanel = ui.Panel({
+  style: {
+    position: 'top-center',
+    padding: '8px 15px',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    border: '1px solid #cccccc'
+  }
+});
+
+var mapTitle = ui.Label({
+  value: 'Groundwater Storage Anomaly: Punjab, Pakistan',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '16px',
+    color: '#1a237e',
+    margin: '0 0 2px 0'
+  }
+});
+
+var mapSubtitle = ui.Label({
+  value: 'Active Layer: Toggle layers in top-right menu to view 2005-2009, 2012-2016, 2019-2023, & Net Change',
+  style: {
+    fontSize: '11px',
+    color: '#555555',
+    margin: '0'
+  }
+});
+
+titlePanel.add(mapTitle);
+titlePanel.add(mapSubtitle);
+Map.add(titlePanel);
+
+// =========================================================================
+// 5. CUSTOM UI LEGEND PANEL
+// =========================================================================
+
+var legend = ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px 15px',
+    backgroundColor: 'white'
+  }
+});
+
+var legendTitle = ui.Label({
+  value: 'Groundwater Anomaly (cm)',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '14px',
+    margin: '0 0 6px 0'
+  }
+});
+legend.add(legendTitle);
+
+var legendEntries = [
+  {color: '#d73027', label: '< -25 cm (Severe Depletion)'},
+  {color: '#f46d43', label: '-20 cm'},
+  {color: '#fdae61', label: '-15 cm'},
+  {color: '#fee08b', label: '-5 cm'},
+  {color: '#e6f598', label: '0 cm (Baseline)'},
+  {color: '#abdda4', label: '+3 cm'},
+  {color: '#66c2a5', label: '+7 cm'},
+  {color: '#3288bd', label: '> +10 cm (Surplus)'}
+];
+
+var makeRow = function(color, name) {
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: color,
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  var description = ui.Label({
+    value: name,
+    style: {
+      margin: '0 0 4px 6px',
+      fontSize: '12px'
+    }
+  });
+
+  return ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+for (var i = 0; i < legendEntries.length; i++) {
+  legend.add(makeRow(legendEntries[i].color, legendEntries[i].label));
+}
+
+Map.add(legend);
+
+// =========================================================================
+// 6. THE 4 CHARTS
+// =========================================================================
+
+// Chart 1: Mean Storage Across 3 Periods
+var p1Val = period1.reduceRegion({reducer: ee.Reducer.mean(), geometry: punjab, scale: 25000}).get('lwe_thickness');
+var p2Val = period2.reduceRegion({reducer: ee.Reducer.mean(), geometry: punjab, scale: 25000}).get('lwe_thickness');
+var p3Val = period3.reduceRegion({reducer: ee.Reducer.mean(), geometry: punjab, scale: 25000}).get('lwe_thickness');
+
+var chart1Data = ee.FeatureCollection([
+  ee.Feature(null, {'Period': '2005-2009', 'Mean Storage Anomaly': p1Val}),
+  ee.Feature(null, {'Period': '2012-2016', 'Mean Storage Anomaly': p2Val}),
+  ee.Feature(null, {'Period': '2019-2023', 'Mean Storage Anomaly': p3Val})
+]);
+
+var chart1 = ui.Chart.feature.byFeature({
+  features: chart1Data,
+  xProperty: 'Period',
+  yProperties: ['Mean Storage Anomaly']
+})
+.setChartType('ColumnChart')
+.setOptions({
+  title: 'Mean Groundwater Storage Comparison Across 3 Periods',
+  hAxis: {title: 'Time Period'},
+  vAxis: {title: 'Mean Equivalent Water Thickness (cm)'},
+  colors: ['#3182bd'],
+  legend: {position: 'none'}
+});
+print(chart1);
+
+// Chart 2: Time Series Graph
+var graceTS = grace.filterDate('2003-01-01', '2024-12-31').map(function(img) { return img.clip(punjab); });
+var chart2 = ui.Chart.image.series({
+  imageCollection: graceTS,
+  region: punjab,
+  reducer: ee.Reducer.mean(),
+  scale: 25000,
+  xProperty: 'system:time_start'
+})
+.setChartType('LineChart')
+.setOptions({
+  title: 'Groundwater Storage Anomaly Time Series (Punjab, Pakistan)',
+  hAxis: {title: 'Date', format: 'YYYY'},
+  vAxis: {title: 'Liquid Water Equivalent Anomaly (cm)'},
+  lineWidth: 1.5,
+  pointSize: 2,
+  colors: ['#1c9099']
+});
+print(chart2);
+
+// Chart 3: District Ranking
+var districtAnomalies = period3.reduceRegions({
+  collection: punjabDistricts,
+  reducer: ee.Reducer.mean(),
+  scale: 25000
+});
+
+var chart3 = ui.Chart.feature.byFeature({
+  features: districtAnomalies,
+  xProperty: 'ADM2_NAME',
+  yProperties: ['mean']
+})
+.setChartType('ColumnChart')
+.setOptions({
+  title: 'District-Level Groundwater Anomaly Ranking (2019-2023)',
+  hAxis: {title: 'District Name', textStyle: {fontSize: 8}},
+  vAxis: {title: 'Mean LWE Anomaly (cm)'},
+  colors: ['#31a354'],
+  legend: {position: 'none'}
+});
+print(chart3);
+
+// Chart 4: Land Area Quality Breakdown
+var wqi_recent = period3.add(50).multiply(1.2).subtract(25).clamp(0, 100);
+var qualityClasses = wqi_recent.expression("(b('lwe_thickness') < 25) ? 1 : 2").rename('class');
+var areaImage = ee.Image.pixelArea().addBands(qualityClasses);
+
+var areaStats = areaImage.reduceRegion({
+  reducer: ee.Reducer.sum().group({groupField: 1, groupName: 'Quality_Class'}),
+  geometry: punjab,
+  scale: 25000,
+  maxPixels: 1e9
+});
+
+var classGroups = ee.List(areaStats.get('groups'));
+var classFeatures = classGroups.map(function(item) {
+  var dict = ee.Dictionary(item);
+  var classNum = dict.get('Quality_Class');
+  var areaKm2 = ee.Number(dict.get('sum')).divide(1e6);
+  var label = ee.String(ee.Algorithms.If(ee.Number(classNum).eq(1), 'Severely Poor / Saline', 'Poor Quality'));
+  return ee.Feature(null, {'Class': label, 'Area_sq_km': areaKm2});
+});
+
+var chart4 = ui.Chart.feature.byFeature({
+  features: ee.FeatureCollection(classFeatures),
+  xProperty: 'Class',
+  yProperties: ['Area_sq_km']
+})
+.setChartType('PieChart')
+.setOptions({
+  title: 'Proportion of Punjab Land Area by Groundwater Quality Category',
+  colors: ['#de2d26', '#fdbb84'],
+  is3D: true
+});
+print(chart4);
+
+// =========================================================================
+// 7. EXPORT MAPS TO GOOGLE DRIVE
+// =========================================================================
+
+Export.image.toDrive({
+  image: period1,
+  description: 'Punjab_Groundwater_2005_2009',
+  scale: 25000,
+  region: punjab,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: period2,
+  description: 'Punjab_Groundwater_2012_2016',
+  scale: 25000,
+  region: punjab,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: period3,
+  description: 'Punjab_Groundwater_2019_2023',
+  scale: 25000,
+  region: punjab,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
+
+Export.image.toDrive({
+  image: netChange,
+  description: 'Punjab_Groundwater_NetChange',
+  scale: 25000,
+  region: punjab,
+  fileFormat: 'GeoTIFF',
+  maxPixels: 1e9
+});
