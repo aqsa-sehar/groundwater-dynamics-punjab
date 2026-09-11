@@ -1,0 +1,18 @@
+Methodological Workflow
+            [ NASA GRACE / GRACE-FO V04 Dataset ]
+                              │
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+        [ Multi-Period Means ]    [ Monthly Time Series ]
+        (2005-09, 12-16, 19-23)         (2003–2024)
+                 │                         │
+                 ├─────────────────────────┤
+                 ▼                         ▼
+        [ Net Change Computation ]  [ Regional Analytics ]
+         (Period 3 - Period 1)     (District Aggregation)
+                 │                         │
+                 └────────────┬────────────┘
+                              ▼
+                [ Map Layers & Custom UI ]
+                              ▼
+                [ GeoTIFF Drive Exports ]
